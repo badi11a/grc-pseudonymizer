@@ -16,7 +16,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          git clone "https://badi11a:${GH_TOKEN}@github.com/badi11a/grc-pseudonymizer-demo.git" demo-repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/badi11a/grc-pseudonymizer-demo.git" demo-repo
           cp demo/index.html demo-repo/index.html
           cd demo-repo
           git config user.email "github-actions[bot]@users.noreply.github.com"
