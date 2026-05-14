@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.git/
+.github/
+tpch-dbgen/
+informe_trazabilidad.json
+config.yaml
+config.local.yaml
+pipeline.py
+test_*.py
+output/

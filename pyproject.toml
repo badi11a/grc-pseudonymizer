@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pseudonymize"
+version = "0.1.0"
+description = "Pipeline de seudonimización de datos — TFM PoC"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "numpy",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "fastfpe",
+    "faker",
+    "copulas",
+    "scipy",
+    "xgboost",
+    "pyyaml",
+    "fastapi",
+    "uvicorn[standard]",
+    "networkx>=3.0",
+]
+
+[project.scripts]
+pseudonymize = "pseudonymize.cli:main"
+pseudonymize-ui = "pseudonymize.ui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pseudonymize*"]

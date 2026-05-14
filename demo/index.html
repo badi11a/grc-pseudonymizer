@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pseudonymize · Protección de datos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    /* ── Reset & base ───────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: #0F172A;
+      color: #F8FAFC;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+    /* ── Screens ────────────────────────────────────────────── */
+    .screen {
+      display: none;
+      min-height: calc(100vh - 65px);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px;
+    }
+    .screen.active { display: flex; }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      position: sticky; top: 0; z-index: 50;
+      height: 65px;
+      background: rgba(15,23,42,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex; align-items: center; padding: 0 24px;
+    }
+    .header-inner {
+      max-width: 920px; width: 100%; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 700; font-size: 17px; color: #F8FAFC;
+    }
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, #3B82F6, #6366F1);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* ── Demo banner ────────────────────────────────────────── */
+    .demo-ribbon {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 12px; border-radius: 100px;
+      background: rgba(99,102,241,0.15);
+      border: 1px solid rgba(99,102,241,0.3);
+      font-size: 11px; font-weight: 600; color: #A5B4FC;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── View toggle ────────────────────────────────────────── */
+    .view-toggle {
+      display: flex;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 3px; gap: 2px;
+    }
+    .toggle-btn {
+      padding: 5px 16px; border-radius: 6px;
+      font-size: 13px; font-weight: 500;
+      color: #64748B; cursor: pointer;
+      border: none; background: transparent;
+      transition: all 0.2s; font-family: inherit;
+    }
+    .toggle-btn.active { background: #3B82F6; color: #fff; }
+
+    /* ── Glass card ─────────────────────────────────────────── */
+    .glass {
+      background: rgba(30,41,59,0.65);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+    }
+
+    /* ── Buttons ────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center;
+      justify-content: center; gap: 8px;
+      padding: 13px 24px; border-radius: 10px;
+      font-size: 15px; font-weight: 600;
+      cursor: pointer; border: none; font-family: inherit;
+      transition: all 0.2s;
+    }
+    .btn-success {
+      background: #10B981; color: #fff;
+      box-shadow: 0 4px 16px rgba(16,185,129,0.3);
+    }
+    .btn-success:hover { background: #059669; transform: translateY(-1px); }
+    .btn-secondary {
+      background: rgba(255,255,255,0.05); color: #94A3B8;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.09); color: #F8FAFC; }
+
+    /* ── Cards grid ─────────────────────────────────────────── */
+    .cards-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; width: 100%; }
+
+    /* ── Result traffic-light cards ─────────────────────────── */
+    .result-card {
+      background: rgba(16,185,129,0.05);
+      border: 1px solid rgba(16,185,129,0.2);
+      border-radius: 16px; padding: 28px 20px;
+      text-align: center; transition: all 0.3s;
+    }
+    .result-card:hover { transform: translateY(-2px); background: rgba(16,185,129,0.08); }
+    .result-card.fail {
+      background: rgba(239,68,68,0.05);
+      border-color: rgba(239,68,68,0.2);
+    }
+
+    /* ── Compliance badge ───────────────────────────────────── */
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 100px;
+      font-size: 12px; font-weight: 600;
+      background: rgba(16,185,129,0.1);
+      border: 1px solid rgba(16,185,129,0.25);
+      color: #34D399;
+    }
+
+    /* ── JSON preview ───────────────────────────────────────── */
+    .json-pre {
+      background: rgba(15,23,42,0.9);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 10px; padding: 16px;
+      font-family: 'Courier New', monospace; font-size: 12px;
+      color: #64748B; overflow: auto; max-height: 220px;
+      white-space: pre; text-align: left; line-height: 1.6;
+    }
+
+    /* ── Tech-only sections ─────────────────────────────────── */
+    .tech-only { display: none; }
+
+    /* ── Entrance animations ────────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { opacity: 0; animation: fadeUp 0.5s ease both; }
+    .d0 { animation-delay: 0s;    }
+    .d1 { animation-delay: 0.08s; }
+    .d2 { animation-delay: 0.16s; }
+    .d3 { animation-delay: 0.24s; }
+    .d4 { animation-delay: 0.32s; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     HEADER
+══════════════════════════════════════════ -->
+<header>
+  <div class="header-inner">
+
+    <div class="logo">
+      <div class="logo-icon">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      Pseudonymize
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="demo-ribbon">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        DEMO — ejecución real
+      </div>
+      <div class="view-toggle">
+        <button class="toggle-btn" id="btn-exec" onclick="setView('executive')">Vista Ejecutiva</button>
+        <button class="toggle-btn" id="btn-tech" onclick="setView('technical')">Vista Técnica</button>
+      </div>
+    </div>
+
+  </div>
+</header>
+
+
+<!-- ══════════════════════════════════════════
+     PANTALLA — RESULTADOS
+══════════════════════════════════════════ -->
+<div id="s-results" class="screen active">
+
+  <div id="results-main" style="width:100%;max-width:920px;">
+
+    <!-- Headline -->
+    <div style="text-align:center;margin-bottom:48px;" class="fade-up d0">
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 16px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:100px;color:#34D399;font-size:13px;font-weight:600;margin-bottom:20px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Proceso completado
+      </div>
+      <div id="r-headline" style="font-size:clamp(26px,5vw,42px);font-weight:800;line-height:1.2;margin-bottom:8px;">
+        165.000 registros protegidos
+      </div>
+      <div id="r-subline" style="font-size:16px;color:#64748B;">
+        en 2.159 segundos &nbsp;·&nbsp; RGPD verificado
+      </div>
+    </div>
+
+    <!-- Traffic-light cards -->
+    <div class="cards-grid" style="margin-bottom:32px;">
+
+      <div class="fade-up d1">
+        <div class="result-card" id="rc-integrity">
+          <div style="width:48px;height:48px;background:rgba(16,185,129,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <polyline points="9 12 11 14 15 10"/>
+            </svg>
+          </div>
+          <div style="font-size:22px;font-weight:800;color:#10B981;margin-bottom:6px;">✓</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Identidades cifradas</div>
+          <div style="font-size:12px;color:#64748B;">150.000 / 150.000 registros</div>
+        </div>
+      </div>
+
+      <div class="fade-up d2">
+        <div class="result-card" id="rc-names">
+          <div style="width:48px;height:48px;background:rgba(16,185,129,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+              <polyline points="9 12 11 14 15 10"/>
+            </svg>
+          </div>
+          <div style="font-size:22px;font-weight:800;color:#10B981;margin-bottom:6px;">✓</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Datos personales sustituidos</div>
+          <div style="font-size:12px;color:#64748B;">15.000 sustituciones realizadas</div>
+        </div>
+      </div>
+
+      <div class="fade-up d3">
+        <div class="result-card" id="rc-stats">
+          <div style="width:48px;height:48px;background:rgba(16,185,129,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="20" x2="18" y2="10"/>
+              <line x1="12" y1="20" x2="12" y2="4"/>
+              <line x1="6"  y1="20" x2="6"  y2="14"/>
+              <line x1="2"  y1="20" x2="22" y2="20"/>
+            </svg>
+          </div>
+          <div style="font-size:22px;font-weight:800;color:#10B981;margin-bottom:6px;">0.00914</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Utilidad estadística</div>
+          <div style="font-size:12px;color:#64748B;">Norma Frobenius · umbral &lt; 0.5</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Compliance badges -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:40px;" class="fade-up d3">
+      <span class="badge">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        RGPD Art. 32 verificado
+      </span>
+      <span class="badge">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        EDPB 01/2025
+      </span>
+      <span class="badge">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        ISO 27001:2022 A.8.33
+      </span>
+    </div>
+
+    <!-- Technical section -->
+    <div class="tech-only" id="tech-detail" style="margin-bottom:28px;">
+      <div class="glass" style="padding:24px;margin-bottom:16px;">
+        <h4 style="font-size:11px;font-weight:600;color:#475569;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px;">Detalle técnico por módulo</h4>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="color:#334155;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">
+              <th style="text-align:left;padding-bottom:10px;font-weight:500;">Módulo</th>
+              <th style="text-align:left;padding-bottom:10px;font-weight:500;">Algoritmo</th>
+              <th style="text-align:left;padding-bottom:10px;font-weight:500;">Alcance</th>
+              <th style="text-align:right;padding-bottom:10px;font-weight:500;">Tiempo</th>
+              <th style="text-align:center;padding-bottom:10px;font-weight:500;">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-top:1px solid rgba(255,255,255,0.04);">
+              <td style="padding:10px 0;color:#94A3B8;font-weight:600;">M1 · FPE</td>
+              <td style="padding:10px 16px;color:#475569;">FF1 NIST SP 800-38G</td>
+              <td style="padding:10px 0;color:#64748B;">15.000 PK · 150.000 FK</td>
+              <td style="padding:10px 0;text-align:right;color:#94A3B8;">0.627s</td>
+              <td style="padding:10px 0;text-align:center;font-size:16px;color:#10B981;">✓</td>
+            </tr>
+            <tr style="border-top:1px solid rgba(255,255,255,0.04);">
+              <td style="padding:10px 0;color:#94A3B8;font-weight:600;">M3 · HMAC</td>
+              <td style="padding:10px 16px;color:#475569;">HMAC-SHA256 + Faker es_ES</td>
+              <td style="padding:10px 0;color:#64748B;">15.000 identifiers</td>
+              <td style="padding:10px 0;text-align:right;color:#94A3B8;">0.692s</td>
+              <td style="padding:10px 0;text-align:center;font-size:16px;color:#10B981;">✓</td>
+            </tr>
+            <tr style="border-top:1px solid rgba(255,255,255,0.04);">
+              <td style="padding:10px 0;color:#94A3B8;font-weight:600;">M2 · Cópula</td>
+              <td style="padding:10px 16px;color:#475569;">GaussianMultivariate</td>
+              <td style="padding:10px 0;color:#64748B;">15.000 filas sintéticas</td>
+              <td style="padding:10px 0;text-align:right;color:#94A3B8;">0.84s</td>
+              <td style="padding:10px 0;text-align:center;font-size:16px;color:#10B981;">✓</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="glass" style="padding:24px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h4 style="font-size:11px;font-weight:600;color:#475569;letter-spacing:0.1em;text-transform:uppercase;">Vista previa del informe</h4>
+          <span style="font-size:11px;color:#334155;">informe_trazabilidad.json</span>
+        </div>
+        <div class="json-pre" id="r-json-pre"></div>
+      </div>
+    </div>
+
+    <!-- Audit meta (technical) -->
+    <div class="tech-only" style="text-align:center;font-size:11px;color:#1E293B;margin-bottom:24px;">
+      run_id: <span style="color:#334155;">99830947-e681-4311-b7b9-87c80bd7a10a</span> &nbsp;·&nbsp;
+      <span style="color:#334155;">2026-05-14T03:37:04.706656+00:00</span>
+    </div>
+
+    <!-- Actions -->
+    <div style="display:flex;gap:12px;justify-content:center;" class="fade-up d4">
+      <button class="btn btn-success" onclick="downloadReport()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Descargar informe de auditoría
+      </button>
+      <a href="https://github.com/badi11a/grc-pseudonymizer" target="_blank" rel="noopener" class="btn btn-secondary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+        Ver repositorio
+      </a>
+    </div>
+
+  </div><!-- /results-main -->
+</div><!-- /s-results -->
+
+
+<script>
+const DEMO_TRACE = {
+  "run_id": "99830947-e681-4311-b7b9-87c80bd7a10a",
+  "timestamp": "2026-05-14T03:37:04.706656+00:00",
+  "version": "0.1.0",
+  "modulos": {
+    "M1": {
+      "algoritmo": "FF1 NIST SP 800-38G",
+      "filas_pk": 15000,
+      "filas_fk": 150000,
+      "join_antes": 150000,
+      "join_despues": 150000,
+      "integridad_ok": true,
+      "tiempo_s": 0.627
+    },
+    "M3": {
+      "tecnica": "HMAC-SHA256 + Faker es_ES",
+      "columnas": ["c_name", "c_address"],
+      "filas": 15000,
+      "tiempo_s": 0.692
+    },
+    "M2": {
+      "tecnica": "GaussianCopulaSynthesizer SDV",
+      "columnas": ["c_acctbal", "c_nationkey"],
+      "filas": 15000,
+      "frobenius": 0.00914,
+      "fallback": false,
+      "tiempo_s": 0.84
+    }
+  },
+  "normativa": ["RGPD Art. 32", "EDPB 01/2025", "ISO 27001:2022 A.8.33"],
+  "resultado_global": "OK",
+  "tiempo_total_s": 2.159
+};
+
+// ── View toggle ──────────────────────────────────────────────
+let currentView = localStorage.getItem('pseu_view') || 'executive';
+
+function setView(v) {
+  currentView = v;
+  localStorage.setItem('pseu_view', v);
+  document.getElementById('btn-exec').classList.toggle('active', v === 'executive');
+  document.getElementById('btn-tech').classList.toggle('active', v === 'technical');
+  applyView();
+}
+
+function applyView() {
+  const tech = currentView === 'technical';
+  document.querySelectorAll('.tech-only').forEach(el => {
+    el.style.display = tech ? 'block' : 'none';
+  });
+}
+
+// ── Download ──────────────────────────────────────────────────
+function downloadReport() {
+  const blob = new Blob([JSON.stringify(DEMO_TRACE, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'),
+    { href: url, download: 'informe_trazabilidad.json' });
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+// ── Init ──────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Populate JSON preview
+  const lines = JSON.stringify(DEMO_TRACE, null, 2).split('\n');
+  document.getElementById('r-json-pre').textContent =
+    lines.slice(0, 22).join('\n') + (lines.length > 22 ? '\n  …' : '');
+
+  setView(currentView);
+});
+</script>
+
+</body>
+</html>

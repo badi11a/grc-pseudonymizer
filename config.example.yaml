@@ -1,0 +1,21 @@
+db_url: "postgresql://tfm_user:1234@localhost/tfm_db"
+
+fpe:
+  key: "2b7e151628aed2a6abf7158809cf4f3c"
+  tweak: ""
+  alphabet: "0123456789"
+
+hmac_key: "clave_maestra_tfm_2026"
+
+tablas:
+  customer:
+    pk: "c_custkey"
+    direct_identifiers:
+      - "c_name"
+      - "c_address"
+    quasi_identifiers:
+      - "c_acctbal"
+      - "c_nationkey"
+  orders:
+    fk:
+      c_custkey: "o_custkey"

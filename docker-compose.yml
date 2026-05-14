@@ -1,0 +1,31 @@
+services:
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB:       tpch_demo
+      POSTGRES_USER:     tpch_user
+      POSTGRES_PASSWORD: tpch_pass
+    volumes:
+      - ./docker/init-tpch.sql:/docker-entrypoint-initdb.d/10-tpch.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U tpch_user -d tpch_demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    ports:
+      - "5433:5432"   # mapped to 5433 to avoid conflict with host postgres
+
+  pseudonymize:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: postgresql://tpch_user:tpch_pass@postgres/tpch_demo
+    volumes:
+      - ./config.example.yaml:/app/config.yaml:ro
+      - ./output:/output          # informe_trazabilidad.json lands here
+    working_dir: /output
+    command: ["--config", "/app/config.yaml"]
