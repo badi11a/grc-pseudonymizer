@@ -2,7 +2,7 @@
 
 Framework de seudonimización batch para bases de datos relacionales con interfaz web y trazabilidad normativa, desarrollado como prueba de concepto para un Trabajo de Fin de Máster en ingeniería de datos con preservación de privacidad.
 
-Procesa 15.000 registros de clientes y 150.000 pedidos en 27,9 segundos preservando la integridad referencial, la utilidad estadística y la trazabilidad normativa completa — con cero pérdida de datos.
+Procesa 15.000 registros de clientes y 150.000 pedidos preservando la integridad referencial, la utilidad estadística y la trazabilidad normativa completa — con cero pérdida de datos.
 
 ---
 
@@ -11,6 +11,8 @@ Procesa 15.000 registros de clientes y 150.000 pedidos en 27,9 segundos preserva
 A live demo showing a real pipeline execution on the TPC-H SF 0.1 dataset is available at:
 
 https://grc-pseudonymizer-demo.vercel.app/
+
+The demo page (`demo/index.html`) is automatically synced to the demo repository by the `sync-demo` GitHub Actions workflow on every push to `main`.
 
 ---
 
@@ -26,7 +28,22 @@ The canonical failure modes are:
 | Mask names with random values | Non-deterministic — same person gets a different alias each run |
 | Add Gaussian noise to quasi-identifiers | Correlation structure between variables collapses |
 
-This pipeline solves all three simultaneously through a three-module architecture, each targeting a different category of personal data.
+This pipeline solves all three simultaneously through a modular architecture, each module targeting a different category of personal data.
+
+---
+
+## Features at a glance
+
+- **M1 — Format-Preserving Encryption (FF1, NIST SP 800-38G)** of primary and foreign keys, with referential-integrity verification on every run.
+- **M3 — Deterministic semantic substitution** of direct identifiers (names, addresses) via HMAC-SHA256-seeded Faker (`es_ES`).
+- **M2 — Gaussian copula synthesis** of quasi-identifiers, with Frobenius-norm quality measurement.
+- **M0 — Automatic FK topology discovery** (standalone module): infers the table dependency graph from the SQL catalog and returns a safe processing order, breaking FK cycles when needed.
+- **Web UI** (FastAPI + Server-Sent Events): structured connection form, connection test, real-time per-module progress, dry-run mode, and in-browser audit report preview and download.
+- **REST API**: run the pipeline, stream progress events, test database connectivity, and retrieve audit reports programmatically.
+- **Structured JSON logging for SIEM**: every pipeline event is emitted as one JSON line on stdout with a `run_id` correlation key; human-readable output goes to stderr.
+- **Dry-run mode**: executes the full pipeline in-memory and marks the result as `SIMULACRO` without persisting the audit report.
+- **Machine-readable audit report** (`informe_trazabilidad.json`) referencing RGPD Art. 32, EDPB 01/2025 and ISO 27001:2022 A.8.33.
+- **Docker support**: one-command demo with a TPC-H PostgreSQL database.
 
 ---
 
@@ -36,36 +53,38 @@ This pipeline solves all three simultaneously through a three-module architectur
 ┌──────────────────────────────────────────────────────────┐
 │                 grc-pseudonymizer Web UI                  │
 │        FastAPI · Server-Sent Events · localhost:8000      │
+│   /api/run · /api/events · /api/report · /api/test-db    │
 └───────────────────────┬──────────────────────────────────┘
                         │ HTTP / SSE
 ┌───────────────────────▼──────────────────────────────────┐
 │                 grc-pseudonymizer CLI                     │
-│              --config  ·  --db-url                        │
+│           --config  ·  --db-url  ·  $DB_URL               │
 └───────────────────┬──────────────────────────────────────┘
                     │
-        ┌───────────▼───────────┐
-        │    pipeline.py        │  orchestrates M1 → M3 → M2
-        └──┬────────┬───────────┘
-           │        │           │
-     ┌─────▼──┐ ┌───▼───┐ ┌────▼────┐
-     │   M1   │ │  M3   │ │   M2    │
-     │  FPE   │ │ HMAC  │ │Copulas  │
-     └────────┘ └───────┘ └─────────┘
+        ┌───────────▼───────────┐      ┌──────────────────┐
+        │    pipeline.py        │─────▶│ logger.py        │
+        │ orchestrates M1→M3→M2 │      │ JSON lines (SIEM)│
+        └──┬────────┬───────┬───┘      └──────────────────┘
+           │        │       │
+     ┌─────▼──┐ ┌───▼───┐ ┌─▼───────┐   ┌──────────────────┐
+     │   M1   │ │  M3   │ │   M2    │   │  M0 (standalone) │
+     │  FPE   │ │ HMAC  │ │ Copulas │   │  FK topology     │
+     └────────┘ └───────┘ └─────────┘   └──────────────────┘
 ```
 
 ### M1 — Format-Preserving Encryption on primary and foreign keys
 
-**Algorithm:** FF1 (NIST SP 800-38G)
+**Algorithm:** FF1 (NIST SP 800-38G), via `fastfpe`
 
-Primary keys (`c_custkey`) and their corresponding foreign keys (`o_custkey`) are encrypted with AES-FF1, a NIST-standardised format-preserving cipher. A 6-digit integer in produces a 6-digit integer out, so all foreign-key joins continue to work on the pseudonymised dataset without any schema changes.
+Primary keys (`c_custkey`) and their corresponding foreign keys (`o_custkey`) are encrypted with AES-FF1, a NIST-standardised format-preserving cipher over a decimal alphabet (values are zero-padded to 6 digits). A 6-digit integer in produces a 6-digit integer out, so all foreign-key joins continue to work on the pseudonymised dataset without any schema changes.
 
-**Guarantee verified at runtime:** the row count of `customer JOIN orders` is identical before and after encryption (150,000 / 150,000 in the reference run).
+**Guarantee verified at runtime:** the row count of `customer JOIN orders` is compared before and after encryption; the audit report records `join_antes`, `join_despues` and the resulting `integridad_ok` flag (150,000 / 150,000 in the reference run).
 
 ### M3 — Deterministic semantic substitution of direct identifiers
 
 **Algorithm:** HMAC-SHA256 + Faker (locale `es_ES`)
 
-Free-text fields that directly identify a person — names and postal addresses — are replaced with realistic synthetic values generated by seeding Faker with the first 4 bytes of an HMAC-SHA256 digest of the original value. The same input always produces the same output across runs (deterministic), but the mapping is one-way without the secret key.
+Free-text fields that directly identify a person — names (`c_name`) and postal addresses (`c_address`) — are replaced with realistic synthetic values generated by seeding Faker with the first 4 bytes of an HMAC-SHA256 digest of the original value. The same input always produces the same output across runs (deterministic), but the mapping is one-way without the secret key.
 
 **Effect:** `"Customer#000000001"` → `"Sofía Miranda Belda"` — consistent across every pipeline execution.
 
@@ -73,11 +92,55 @@ Free-text fields that directly identify a person — names and postal addresses 
 
 **Algorithm:** `copulas.GaussianMultivariate`
 
-Quasi-identifiers — numerical fields that are not directly identifying but can enable re-identification when combined (account balance, nation key) — are replaced with statistically equivalent synthetic values. A Gaussian copula model is fitted on the real data and used to sample a replacement dataset that preserves the joint distribution and inter-variable correlations.
+Quasi-identifiers — numerical fields that are not directly identifying but can enable re-identification when combined (`c_acctbal`, `c_nationkey`) — are replaced with statistically equivalent synthetic values. A Gaussian copula model is fitted on a 2,000-row sample of the real data and used to generate a full-size replacement dataset that preserves the joint distribution and inter-variable correlations. Synthetic nation keys are rounded and clipped to the valid domain; non-finite values fall back to the median.
 
 **Quality metric:** Frobenius norm of the difference between the original and synthetic Spearman correlation matrices. A value close to zero means the multivariate dependency structure is preserved.
 
 Reference run: **Frobenius = 0.0238** (threshold < 0.5).
+
+### M0 — Automatic FK topology discovery (standalone module)
+
+**Module:** `pseudonymize/modules/m0_topology.py` · `get_processing_order(engine)`
+
+M0 infers the foreign-key dependency graph of a schema directly from the database catalog — `INFORMATION_SCHEMA` on PostgreSQL, SQLAlchemy reflection on other dialects (e.g. SQLite) — and returns the tables in topological (root-first) processing order, together with each table's PK and FK metadata. If the schema contains FK **cycles**, the edge with the lowest `COUNT(DISTINCT fk_col)` cardinality is removed until the graph is acyclic, and every cut is recorded in a `cycle_breaks` entry.
+
+**Status:** implemented and unit-tested (`tests/test_m0_topology.py`, in-memory SQLite), but **not yet wired into the orchestrator** — it is the building block for generalising the pipeline beyond the two-table demo schema (see *Current scope* below).
+
+---
+
+## Web UI
+
+`pseudonymize-ui` starts a FastAPI server on **http://localhost:8000** with a single-page interface:
+
+- **Structured connection form** — individual **Host**, **Port**, **User**, **Password** and **Database** fields (no raw connection string), pre-filled for the Docker demo database.
+- **Probar conexión** — a connection-test button that validates the database credentials (`POST /api/test-db`, `SELECT 1` with a 5 s timeout) before launching anything.
+- **Key handling** — the FPE key and HMAC secret are entered in masked (password) fields; the FPE key is validated as exactly 32 hexadecimal characters both in the browser and server-side.
+- **Dry-run toggle** — runs the complete pipeline without persisting the audit report; the result is marked `SIMULACRO`.
+- **Real-time progress** — each module's start, per-module metrics and completion are streamed to the browser over Server-Sent Events.
+- **Audit report preview and download** — when the run completes, the UI shows a preview of `informe_trazabilidad.json` and offers a **Descargar informe de auditoría** button. In UI mode the report is served via the API (`GET /api/report/{run_id}`) and downloaded from the browser — it is *not* written to disk on the server.
+
+### REST API
+
+| Method & path | Purpose |
+|---|---|
+| `POST /api/run` | Launch a pipeline run. Body: `db_url`, `fpe_key` (32-hex, validated), `hmac_key`, optional `tweak`, `dry_run`. Returns `run_id`. |
+| `GET /api/events/{run_id}` | Server-Sent Events stream: `start`, `module_start`, `module_done` (with per-module stats), `complete` / `error`, terminated by `[DONE]`. |
+| `GET /api/report/{run_id}` | Retrieve the audit report (JSON) for a completed run. |
+| `POST /api/test-db` | Test database connectivity. Returns `{ok: true}` or `{ok: false, error}`. |
+
+---
+
+## Structured logging (SIEM integration)
+
+Every pipeline event — from both the CLI and the UI — is emitted by `pseudonymize/logger.py` as **one JSON object per line on stdout**, so a Docker log driver (or any collector) can ship it verbatim to a SIEM. The human-readable banner and summary go to **stderr**, keeping the machine-readable stream clean.
+
+Each line carries a fixed envelope plus event-specific fields:
+
+```json
+{"timestamp": "2026-05-14T20:21:03Z", "run_id": "c3adc2ce", "level": "INFO", "module": "M1", "event": "join_verificado", "filas_antes": 150000, "filas_despues": 150000, "diff": 0, "integridad_ok": true}
+```
+
+The short `run_id` is the correlation key: it is shared by every log line of a run and matches the `run_id` of the audit report, so a run can be reconstructed end-to-end from the SIEM.
 
 ---
 
@@ -85,24 +148,32 @@ Reference run: **Frobenius = 0.0238** (threshold < 0.5).
 
 ```
 pseudonymize/
-├── cli.py            # argparse entry point
-├── config.py         # YAML config loader with CLI override
-├── crypto.py         # FF1 cipher factory (shared by M1 and M2)
-├── pipeline.py       # module orchestrator + traceability report
-├── report.py         # JSON audit log writer
+├── cli.py              # argparse entry point (pseudonymize)
+├── config.py           # YAML config loader with CLI/env override
+├── crypto.py           # FF1 cipher factory (shared by M1 and M2)
+├── logger.py           # structured JSON logging for SIEM (stdout)
+├── pipeline.py         # module orchestrator + traceability report
+├── report.py           # JSON audit log writer
 ├── modules/
-│   ├── m1_fpe.py     # Format-Preserving Encryption
-│   ├── m2_copulas.py # Gaussian copula synthesis
-│   └── m3_faker.py   # HMAC + Faker substitution
+│   ├── m0_topology.py  # FK dependency graph inference (standalone)
+│   ├── m1_fpe.py       # Format-Preserving Encryption
+│   ├── m2_copulas.py   # Gaussian copula synthesis
+│   └── m3_faker.py     # HMAC + Faker substitution
 └── ui/
-    ├── app.py        # FastAPI + SSE server (pseudonymize-ui)
+    ├── app.py          # FastAPI + SSE server (pseudonymize-ui)
     └── templates/
         └── index.html  # Single-page UI (glassmorphism dark theme)
 
-docker-compose.yml    # PostgreSQL + pipeline services
-Dockerfile            # python:3.11-slim, no torch
-pyproject.toml        # pip-installable package definition
-config.example.yaml   # annotated configuration template
+tests/
+└── test_m0_topology.py # unit tests for M0 (in-memory SQLite)
+
+demo/index.html         # static demo page (synced to the demo repo by CI)
+.github/workflows/
+└── sync-demo.yml       # pushes demo/index.html to grc-pseudonymizer-demo
+docker-compose.yml      # PostgreSQL + pipeline services
+Dockerfile              # python:3.11-slim, no torch
+pyproject.toml          # pip-installable package definition
+config.example.yaml     # annotated configuration template
 ```
 
 ---
@@ -129,7 +200,7 @@ pip install -e .
 pseudonymize-ui
 ```
 
-Open **http://localhost:8000** in your browser. The connection form uses structured, individual fields — **Host**, **Port**, **User**, **Password**, and **Database** — pre-filled for the demo database. There is no raw connection string to edit. Click **Proteger datos ahora** to run the full pipeline and watch real-time progress via Server-Sent Events. The final audit report is written to `./output/informe_trazabilidad.json`.
+Open **http://localhost:8000**, optionally hit **Probar conexión** to verify the database, then click **Proteger datos ahora** to run the full pipeline and watch real-time progress via Server-Sent Events. When the run finishes, preview the audit report in the browser and download it with **Descargar informe de auditoría**.
 
 ### Option B — CLI only
 
@@ -175,12 +246,21 @@ pseudonymize-ui
 # → http://localhost:8000
 ```
 
-The `--db-url` flag overrides the database URL in the config file without modifying it — useful for CI/CD pipelines or injecting credentials from a secret manager:
+### CLI reference
+
+```
+pseudonymize --config FILE [--db-url URL]
+```
+
+- `--config FILE` (required) — path to the YAML configuration file.
+- `--db-url URL` — SQLAlchemy connection URL; overrides `db_url` in the config file without modifying it. If the flag is absent, the **`DB_URL` environment variable** is used as a fallback — useful for CI/CD pipelines or injecting credentials from a secret manager (this is how the Docker service passes its connection string):
 
 ```bash
 pseudonymize --config config.yaml \
   --db-url postgresql://user:$DB_PASS@prod-host/mydb
 ```
+
+Exit codes: `1` config file not found · `2` invalid configuration · `3` unexpected error.
 
 ### Configuration reference
 
@@ -205,9 +285,13 @@ tablas:
       c_custkey: "o_custkey"
 ```
 
+### Current scope
+
+This is a proof of concept: the orchestrator currently targets the TPC-H `customer`/`orders` demo schema (the table and column names above). The `tablas` section documents that mapping; generalising the pipeline to arbitrary schemas is the purpose of the M0 topology module, which already infers the required table processing order but is not yet consumed by the orchestrator.
+
 ### Output — audit and compliance artefact
 
-Every run writes a machine-readable audit report to `informe_trazabilidad.json`. This file is the primary evidence artefact for **RGPD Art. 32** accountability obligations and **ISO 27001:2022 control A.8.33** (protection of test information). It records, in a single tamper-evident JSON document, which algorithm was applied to which columns, at what time, and with what measured quality outcome — ready to attach to a DPIA or hand to an auditor.
+Every CLI run writes a machine-readable audit report to `informe_trazabilidad.json` (in UI mode it is served via `GET /api/report/{run_id}` and downloaded from the browser). This file is the primary evidence artefact for **RGPD Art. 32** accountability obligations and **ISO 27001:2022 control A.8.33** (protection of test information). It records, in a single machine-readable JSON document, which algorithm was applied to which columns, at what time, and with what measured quality outcome — ready to attach to a DPIA or hand to an auditor.
 
 ```json
 {
@@ -215,15 +299,32 @@ Every run writes a machine-readable audit report to `informe_trazabilidad.json`.
   "timestamp": "2026-05-14T20:21:03.485966+00:00",
   "version": "0.1.0",
   "modulos": {
-    "M1": { "algoritmo": "FF1 NIST SP 800-38G", "integridad_ok": true, "tiempo_s": 0.915 },
-    "M3": { "tecnica": "HMAC-SHA256 + Faker es_ES", "filas": 15000, "tiempo_s": 1.2 },
-    "M2": { "tecnica": "GaussianMultivariate copulas", "frobenius": 0.023772, "tiempo_s": 25.76 }
+    "M1": {
+      "algoritmo": "FF1 NIST SP 800-38G",
+      "filas_pk": 15000, "filas_fk": 150000,
+      "join_antes": 150000, "join_despues": 150000,
+      "integridad_ok": true, "tiempo_s": 0.915
+    },
+    "M3": {
+      "tecnica": "HMAC-SHA256 + Faker es_ES",
+      "columnas": ["c_name", "c_address"],
+      "filas": 15000, "tiempo_s": 1.2
+    },
+    "M2": {
+      "tecnica": "GaussianMultivariate copulas",
+      "columnas": ["c_acctbal", "c_nationkey"],
+      "filas": 15000, "frobenius": 0.023772,
+      "fallback": false, "tiempo_s": 25.76
+    }
   },
   "normativa": ["RGPD Art. 32", "EDPB 01/2025", "ISO 27001:2022 A.8.33"],
+  "dry_run": false,
   "resultado_global": "OK",
   "tiempo_total_s": 27.875
 }
 ```
+
+In dry-run mode `dry_run` is `true`, `resultado_global` is `"SIMULACRO"`, and the report is not persisted to disk.
 
 ---
 
@@ -269,7 +370,7 @@ The European Data Protection Board's 2025 guidelines clarify that effective pseu
 
 ### ISO/IEC 27001:2022 — Control A.8.33
 
-The machine-readable audit log (`informe_trazabilidad.json`) produced on every run provides the evidence trail required by control A.8.33 (protection of test information), recording which algorithm was applied, to which columns, at what time, and with what measured quality outcome.
+The machine-readable audit log (`informe_trazabilidad.json`) produced on every run provides the evidence trail required by control A.8.33 (protection of test information), recording which algorithm was applied, to which columns, at what time, and with what measured quality outcome. The structured JSON log stream complements it with per-event traceability in the SIEM, correlated by `run_id`.
 
 ---
 
@@ -280,11 +381,13 @@ The machine-readable audit log (`informe_trazabilidad.json`) produced on every r
 | `fastfpe` | FF1 format-preserving encryption (NIST SP 800-38G) |
 | `copulas` | Gaussian copula synthesis (`GaussianMultivariate`) |
 | `faker` | Locale-aware synthetic name and address generation |
-| `fastapi` | Web UI server and REST API |
-| `uvicorn` | ASGI server for FastAPI |
-| `sqlalchemy` | Database-agnostic SQL layer |
-| `pyyaml` | Configuration file parsing |
+| `networkx` | FK dependency graph and topological sort (M0) |
+| `pandas` / `numpy` | In-memory dataframes and numerical operations |
+| `sqlalchemy` + `psycopg2-binary` | Database-agnostic SQL layer / PostgreSQL driver |
 | `scipy` | Spearman correlation and Frobenius norm computation |
+| `fastapi` + `uvicorn` | Web UI server, REST API and SSE streaming |
+| `pyyaml` | Configuration file parsing |
+| `xgboost` | Utility-evaluation experiments (root-level `test_xgboost*.py` scripts) |
 
 ---
 
