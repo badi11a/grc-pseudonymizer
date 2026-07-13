@@ -1,4 +1,5 @@
 import sys
+import time
 
 import pandas as pd
 from sqlalchemy import create_engine
@@ -7,7 +8,7 @@ from . import config as cfg_mod
 from . import report
 from .crypto import make_cifrar
 from .logger import get_logger
-from .modules import m1_fpe, m2_copulas, m3_faker
+from .modules import m0_topology, m1_fpe, m2_copulas, m3_faker
 
 
 def run(config_path: str, db_url: str | None = None, dry_run: bool = False) -> dict:
@@ -27,6 +28,39 @@ def run(config_path: str, db_url: str | None = None, dry_run: bool = False) -> d
 
     log.info("pipeline_start", extra={"dry_run": dry_run})
 
+    # ── M0 ───────────────────────────────────────────────────────────────────
+    print("\n[M0] Inferencia de topología FK", file=sys.stderr)
+    log.info("m0_start")
+    t_m0_0 = time.time()
+
+    topology = m0_topology.get_processing_order(engine)
+    orden_tablas = [t["table"] for t in topology if "table" in t]
+    ciclos_rotos = next((t["cycle_breaks"] for t in topology if "cycle_breaks" in t), [])
+
+    m0_stats = {
+        "algoritmo": "FK topological sort (networkx)",
+        "orden": orden_tablas,
+        "ciclos_rotos": ciclos_rotos,
+        "tiempo_s": round(time.time() - t_m0_0, 3),
+    }
+    trace["modulos"]["M0"] = m0_stats
+
+    print(f"  Orden de procesamiento: {' → '.join(orden_tablas)}", file=sys.stderr)
+    if ciclos_rotos:
+        print(f"  Ciclos FK detectados y rotos: {ciclos_rotos}", file=sys.stderr)
+    log.info("m0_end", extra={
+        "orden": orden_tablas,
+        "ciclos_rotos": ciclos_rotos,
+        "tiempo_s": m0_stats["tiempo_s"],
+    })
+
+    if "customer" in orden_tablas and "orders" in orden_tablas:
+        if orden_tablas.index("customer") > orden_tablas.index("orders"):
+            log.warning("m0_orden_inesperado", extra={
+                "detalle": "el catálogo indica 'orders' antes que 'customer'; "
+                           "el orquestador aún procesa en el orden fijo customer→orders",
+            })
+
     customer = pd.read_sql("SELECT * FROM customer", engine)
     orders = pd.read_sql("SELECT o_orderkey, o_custkey FROM orders", engine)
 
@@ -43,6 +77,12 @@ def run(config_path: str, db_url: str | None = None, dry_run: bool = False) -> d
     print(f"  JOIN después: {m1_stats['join_despues']:,} filas", file=sys.stderr)
     print(f"  Integridad referencial: {'✓ OK' if integridad_ok else '✗ FALLO'}",
           file=sys.stderr)
+    print(
+        f"  Caché FF1: {m1_stats['cache_llamadas_ff1']:,} llamadas de "
+        f"{m1_stats['cache_valores_totales']:,} valores "
+        f"({m1_stats['cache_reduccion_pct']}% reducción)",
+        file=sys.stderr,
+    )
 
     log.info("m1_end", extra={
         "filas_pk": m1_stats["filas_pk"],
@@ -105,6 +145,7 @@ def run(config_path: str, db_url: str | None = None, dry_run: bool = False) -> d
     print("\n" + "=" * 55, file=sys.stderr)
     print("  RESUMEN FINAL", file=sys.stderr)
     print("=" * 55, file=sys.stderr)
+    print(f"  M0 orden de procesamiento:  {' → '.join(orden_tablas)}", file=sys.stderr)
     print(f"  M1 integridad referencial: {'✓' if integridad_ok else '✗'}", file=sys.stderr)
     print("  M3 determinismo:            ✓", file=sys.stderr)
     print(f"  M2 Frobenius:               {frobenius}", file=sys.stderr)

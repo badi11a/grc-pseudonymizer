@@ -137,13 +137,15 @@ async def get_report(run_id: str):
 
 
 def _execute(cfg: dict, run_id: str, dry_run: bool = False) -> None:
+    import time
+
     import pandas as pd
     from sqlalchemy import create_engine
 
     from pseudonymize import report as report_mod
     from pseudonymize.crypto import make_cifrar
     from pseudonymize.logger import get_logger
-    from pseudonymize.modules import m1_fpe, m2_copulas, m3_faker
+    from pseudonymize.modules import m0_topology, m1_fpe, m2_copulas, m3_faker
 
     loop = _loops[run_id]
     queue = _queues[run_id]
@@ -161,6 +163,27 @@ def _execute(cfg: dict, run_id: str, dry_run: bool = False) -> None:
 
     log.info("pipeline_start", extra={"dry_run": dry_run, "source": "ui"})
     emit({"type": "start", "run_id": run_id, "dry_run": dry_run})
+
+    # M0 runs ahead of the UI's three-card progress view (no card is rendered
+    # for it in index.html) but its result is logged and recorded in the
+    # audit trace like the CLI path.
+    log.info("m0_start")
+    t_m0_0 = time.time()
+    topology = m0_topology.get_processing_order(engine)
+    orden_tablas = [t["table"] for t in topology if "table" in t]
+    ciclos_rotos = next((t["cycle_breaks"] for t in topology if "cycle_breaks" in t), [])
+    m0_stats = {
+        "algoritmo": "FK topological sort (networkx)",
+        "orden": orden_tablas,
+        "ciclos_rotos": ciclos_rotos,
+        "tiempo_s": round(time.time() - t_m0_0, 3),
+    }
+    trace["modulos"]["M0"] = m0_stats
+    log.info("m0_end", extra={
+        "orden": orden_tablas,
+        "ciclos_rotos": ciclos_rotos,
+        "tiempo_s": m0_stats["tiempo_s"],
+    })
 
     customer = pd.read_sql("SELECT * FROM customer", engine)
     orders = pd.read_sql("SELECT o_orderkey, o_custkey FROM orders", engine)

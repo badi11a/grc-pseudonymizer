@@ -1,5 +1,7 @@
 db_url: "postgresql://tfm_user:1234@localhost/tfm_db"
 
+# Las claves también aceptan variables de entorno con sintaxis ${VAR_NAME},
+# p. ej.: key: "${FPE_KEY}"  /  hmac_key: "${HMAC_KEY}"
 fpe:
   key: "2b7e151628aed2a6abf7158809cf4f3c"
   tweak: ""

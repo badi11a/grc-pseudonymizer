@@ -27,8 +27,22 @@ def run(
     customer = customer.copy()
     orders = orders.copy()
 
+    # FF1 es una seudopermutación determinista: el mismo valor bajo la misma
+    # clave/tweak siempre cifra igual. Como cada FK referencia una PK ya
+    # cifrada, cachear por valor original evita recalcular FF1 en la columna
+    # FK (normalmente mucho mayor que la PK).
+    cache: dict[str, str] = {}
+
+    def cifrar_cached(valor) -> str:
+        key = str(valor)
+        cached = cache.get(key)
+        if cached is None:
+            cached = cifrar(valor)
+            cache[key] = cached
+        return cached
+
     ejemplo_antes = int(customer["c_custkey"].iloc[0])
-    customer["c_custkey"] = customer["c_custkey"].apply(cifrar)
+    customer["c_custkey"] = customer["c_custkey"].apply(cifrar_cached)
     ejemplo_despues = int(customer["c_custkey"].iloc[0])
 
     t_pk = round(time.time() - t0, 3)
@@ -42,7 +56,7 @@ def run(
     log.info("fpe_fk_start", extra={"filas": len(orders)})
     t_fk0 = time.time()
 
-    orders["o_custkey"] = orders["o_custkey"].apply(cifrar)
+    orders["o_custkey"] = orders["o_custkey"].apply(cifrar_cached)
 
     t_fk = round(time.time() - t_fk0, 3)
     log.info("fpe_fk_end", extra={"filas": len(orders), "tiempo_s": t_fk})
@@ -58,6 +72,17 @@ def run(
         "integridad_ok": diff == 0,
     })
 
+    valores_totales = len(customer) + len(orders)
+    llamadas_ff1 = len(cache)
+    reduccion_pct = (
+        round((1 - llamadas_ff1 / valores_totales) * 100, 1) if valores_totales else 0.0
+    )
+    log.info("cache_ff1", extra={
+        "valores_totales": valores_totales,
+        "llamadas_ff1": llamadas_ff1,
+        "reduccion_pct": reduccion_pct,
+    })
+
     stats = {
         "algoritmo": "FF1 NIST SP 800-38G",
         "filas_pk": len(customer),
@@ -65,6 +90,9 @@ def run(
         "join_antes": join_antes,
         "join_despues": join_despues,
         "integridad_ok": join_antes == join_despues,
+        "cache_valores_totales": valores_totales,
+        "cache_llamadas_ff1": llamadas_ff1,
+        "cache_reduccion_pct": reduccion_pct,
         "tiempo_s": round(t1 - t0, 3),
     }
     return customer, orders, stats
