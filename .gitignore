@@ -175,3 +175,9 @@ config.local.yaml
 output/
 informe_trazabilidad.json
 tpch-dbgen/
+
+# Thesis working documents — not part of the codebase
+*.docx
+
+# Claude Code local config
+.claude/
